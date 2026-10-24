@@ -1,6 +1,8 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/EditorPauseLayer.hpp>
 #include <set>
+#include <cmath>
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -135,43 +137,80 @@ static std::vector<Ref<GameObject>> applyDeco(LevelEditorLayer* lel, DecoStyle c
 // ---------------------------------------------------------------------------
 // Popup menu giống ảnh: tiêu đề, preview, nút < 15/31 >, Preview on layout, Decorate level.
 // ---------------------------------------------------------------------------
-class AutoDecoPopup : public Popup<LevelEditorLayer*> {
+class AutoDecoPopup : public FLAlertLayer {
 protected:
 	LevelEditorLayer* m_lel = nullptr;
 	int m_index = 0;
-	CCLabelBIFont* m_nameLabel = nullptr;
+	CCLabelBMFont* m_nameLabel = nullptr;
 	CCLabelBMFont* m_descLabel = nullptr;
 	CCLabelBMFont* m_counter = nullptr;
 	CCNode* m_previewBox = nullptr;
 	std::vector<Ref<GameObject>> m_preview;
 	bool m_committed = false;
 
-	bool setup(LevelEditorLayer* lel) override {
+	bool setupPopup(LevelEditorLayer* lel) {
+		if (!FLAlertLayer::init(110)) return false;
 		m_lel = lel;
-		this->setTitle("Auto Deco");
+		m_noElasticity = true;
+
+		CCSize size { 360.f, 230.f };
+		auto win = CCDirector::get()->getWinSize();
+
+		m_mainLayer = CCLayer::create();
+		m_mainLayer->setContentSize(size);
+		m_mainLayer->setAnchorPoint({0.f, 0.f});
+		m_mainLayer->ignoreAnchorPointForPosition(false);
+		m_mainLayer->setPosition(ccp(win.width / 2 - size.width / 2, win.height / 2 - size.height / 2));
+		this->addChild(m_mainLayer);
+
+		auto bg = CCScale9Sprite::create("GJ_square01.png");
+		bg->setContentSize(size);
+		bg->setPosition(ccp(size.width / 2, size.height / 2));
+		m_mainLayer->addChild(bg, -1);
+
+		m_buttonMenu = CCMenu::create();
+		m_buttonMenu->setContentSize(size);
+		m_buttonMenu->setAnchorPoint({0.f, 0.f});
+		m_buttonMenu->setPosition(ccp(0.f, 0.f));
+		m_mainLayer->addChild(m_buttonMenu, 10);
+
+		this->setTouchEnabled(true);
+		this->setKeypadEnabled(true);
+
+		auto title = CCLabelBMFont::create("Auto Deco", "goldFont.fnt");
+		title->setScale(0.8f);
+		title->setPosition(ccp(size.width / 2, size.height - 18.f));
+		m_mainLayer->addChild(title);
 
 		auto sub = CCLabelBMFont::create("Choose a style, then preview it on your layout", "chatFont.fnt");
 		sub->setScale(0.7f);
 		sub->setOpacity(180);
-		m_mainLayer->addChildAtPosition(sub, Anchor::Top, {0, -32});
+		sub->setPosition(ccp(size.width / 2, size.height - 38.f));
+		m_mainLayer->addChild(sub);
+
+		// nút đóng
+		auto closeSpr = CCSprite::createWithSpriteFrameName("GJ_closeBtn_001.png");
+		closeSpr->setScale(0.8f);
+		auto closeBtn = CCMenuItemSpriteExtra::create(closeSpr, this, menu_selector(AutoDecoPopup::onClose));
+		closeBtn->setPosition(ccp(6.f, size.height - 6.f));
+		m_buttonMenu->addChild(closeBtn);
 
 		// khung preview bên trái
-		m_previewBox = CCLayerColor::create({0, 0, 0, 255}, 150.f, 100.f);
-		m_previewBox->setPosition(ccp(20, 90));
+		m_previewBox = CCNode::create();
+		m_previewBox->setPosition(ccp(20.f, 90.f));
 		m_mainLayer->addChild(m_previewBox);
 
 		// thông tin style bên phải
-		m_nameLabel = CCLabelBIFont::create("", "goldFont.fnt");
-		m_nameLabel->setScale(0.6f);
+		m_nameLabel = CCLabelBMFont::create("", "goldFont.fnt");
+		m_nameLabel->setScale(0.7f);
 		m_nameLabel->setAnchorPoint({0.f, 0.5f});
-		m_nameLabel->setPosition(ccp(190, 175));
+		m_nameLabel->setPosition(ccp(190.f, 175.f));
 		m_mainLayer->addChild(m_nameLabel);
 
 		m_descLabel = CCLabelBMFont::create("", "chatFont.fnt");
 		m_descLabel->setScale(0.6f);
 		m_descLabel->setAnchorPoint({0.f, 1.f});
-		m_descLabel->setPosition(ccp(190, 160));
-		m_descLabel->setWidth(150.f / 0.6f);
+		m_descLabel->setPosition(ccp(190.f, 160.f));
 		m_mainLayer->addChild(m_descLabel);
 
 		// < 15/31 >
@@ -182,33 +221,40 @@ protected:
 		right->setFlipX(true);
 		auto leftBtn = CCMenuItemSpriteExtra::create(left, this, menu_selector(AutoDecoPopup::onPrev));
 		auto rightBtn = CCMenuItemSpriteExtra::create(right, this, menu_selector(AutoDecoPopup::onNext));
-		m_buttonMenu->addChildAtPosition(leftBtn, Anchor::BottomLeft, {200, 118});
-		m_buttonMenu->addChildAtPosition(rightBtn, Anchor::BottomLeft, {330, 118});
+		leftBtn->setPosition(ccp(200.f, 118.f));
+		rightBtn->setPosition(ccp(330.f, 118.f));
+		m_buttonMenu->addChild(leftBtn);
+		m_buttonMenu->addChild(rightBtn);
 
 		m_counter = CCLabelBMFont::create("", "bigFont.fnt");
 		m_counter->setScale(0.4f);
-		m_mainLayer->addChildAtPosition(m_counter, Anchor::BottomLeft, {265, 118});
+		m_counter->setPosition(ccp(265.f, 118.f));
+		m_mainLayer->addChild(m_counter);
 
 		// nút hành động
 		auto previewBtn = CCMenuItemSpriteExtra::create(
 			ButtonSprite::create("Preview on layout", 140, true, "bigFont.fnt", "GJ_button_04.png", 30.f, 0.5f),
 			this, menu_selector(AutoDecoPopup::onPreview));
-		m_buttonMenu->addChildAtPosition(previewBtn, Anchor::BottomLeft, {265, 88});
+		previewBtn->setPosition(ccp(265.f, 88.f));
+		m_buttonMenu->addChild(previewBtn);
 
 		auto aiBtn = CCMenuItemSpriteExtra::create(
 			ButtonSprite::create("AI Suggest", 90, true, "bigFont.fnt", "GJ_button_02.png", 30.f, 0.5f),
 			this, menu_selector(AutoDecoPopup::onSuggest));
-		m_buttonMenu->addChildAtPosition(aiBtn, Anchor::BottomLeft, {95, 55});
+		aiBtn->setPosition(ccp(95.f, 55.f));
+		m_buttonMenu->addChild(aiBtn);
 
 		auto decoBtn = CCMenuItemSpriteExtra::create(
 			ButtonSprite::create("Decorate level", 120, true, "bigFont.fnt", "GJ_button_01.png", 30.f, 0.5f),
 			this, menu_selector(AutoDecoPopup::onDecorate));
-		m_buttonMenu->addChildAtPosition(decoBtn, Anchor::BottomLeft, {265, 55});
+		decoBtn->setPosition(ccp(265.f, 55.f));
+		m_buttonMenu->addChild(decoBtn);
 
-		auto undoBtn = CCMenuItemSpriteExtra::create(
+		auto clearBtn = CCMenuItemSpriteExtra::create(
 			ButtonSprite::create("Clear preview", 100, true, "bigFont.fnt", "GJ_button_06.png", 30.f, 0.5f),
 			this, menu_selector(AutoDecoPopup::onClear));
-		m_buttonMenu->addChildAtPosition(undoBtn, Anchor::BottomLeft, {95, 88});
+		clearBtn->setPosition(ccp(95.f, 88.f));
+		m_buttonMenu->addChild(clearBtn);
 
 		this->refresh();
 		return true;
@@ -243,9 +289,7 @@ protected:
 		static int salt = 0;
 		m_index = suggestStyle(m_lel, salt++);
 		this->refresh();
-		FLAlertLayer::create("AI Suggest",
-			fmt::format("Style gợi ý cho layout này: <cy>{}</c>", styles()[m_index].name),
-			"OK")->show();
+		Notification::create(fmt::format("AI gợi ý: {}", styles()[m_index].name), NotificationIcon::Success)->show();
 	}
 	void clearPreview() {
 		for (auto& o : m_preview) {
@@ -263,18 +307,22 @@ protected:
 		this->clearPreview();
 		auto placed = applyDeco(m_lel, styles()[m_index], true);
 		m_committed = true;
-		Notification::create(fmt::format("Đã deco {} object", placed.size()), NotificationIcon::Success)->show();
+		Notification::create(fmt::format("Da deco {} object", placed.size()), NotificationIcon::Success)->show();
 		this->onClose(nullptr);
 	}
-	void onClose(CCObject* sender) override {
+	void onClose(CCObject*) {
 		if (!m_committed) this->clearPreview();
-		Popup::onClose(sender);
+		this->setKeypadEnabled(false);
+		this->removeFromParentAndCleanup(true);
+	}
+	void keyBackClicked() override {
+		this->onClose(nullptr);
 	}
 
 public:
 	static AutoDecoPopup* create(LevelEditorLayer* lel) {
 		auto ret = new AutoDecoPopup();
-		if (ret && ret->initAnchored(360.f, 230.f, lel)) {
+		if (ret && ret->setupPopup(lel)) {
 			ret->autorelease();
 			return ret;
 		}
