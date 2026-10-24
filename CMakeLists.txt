@@ -18,5 +18,8 @@ if (NOT DEFINED ENV{GEODE_SDK})
     message(FATAL_ERROR "Chưa đặt biến môi trường GEODE_SDK")
 endif()
 
+# Tắt consteval của fmt: bản fmt cũ không tương thích Clang 21 (NDK 29)
+add_compile_definitions(FMT_USE_CONSTEVAL=0)
+
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 setup_geode_mod(${PROJECT_NAME})
